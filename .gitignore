@@ -9,3 +9,19 @@ node_modules
 iniciar_rastreio.bat
 example.png
 Dockerfile
+
+# Sessão do WhatsApp (CRÍTICO: Não suba isso!)
+auth_info_baileys/
+client/
+
+# Dependências e Builds
+node_modules/
+dist/
+build/
+__pycache__/
+*.exe
+*.spec
+
+# Arquivos locais e temporários
+.env
+iniciar_rastreio.bat

@@ -1,0 +1,11 @@
+.dockerignore
+.env.example
+auth_info_baileys
+CONTRIBUTING.md
+client
+Device Tracker.exe
+device-activity-tracker
+node_modules
+iniciar_rastreio.bat
+example.png
+Dockerfile

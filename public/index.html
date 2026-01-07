@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Rastreamento Whatsapp</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #25d366; --dark: #075e54; --bg: #e5ddd5; --danger: #ff2e2e; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; }
+        .main-card { background: white; width: 900px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden; }
+        .header { background: var(--dark); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .container { padding: 20px; display: flex; gap: 20px; }
+        .sidebar { width: 300px; border-right: 1px solid #eee; padding-right: 20px; }
+        .content { flex: 1; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin: 10px 0; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin-bottom: 10px; transition: 0.3s; }
+        .btn-main { background: var(--primary); color: white; }
+        .btn-stop { background: var(--danger); color: white; display: none; }
+        .btn-opt { background: #f0f2f5; color: #333; font-size: 13px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #log-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 15px; }
+        #log-table th, #log-table td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+        .chart-container { height: 300px; margin-top: 20px; }
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="main-card">
+        <div class="header">
+            <div>
+                <h2 style="margin:0">Rastreamento Whatsapp</h2>
+                <small id="connection-status">🔴 Aguardando Login no Terminal...</small>
+            </div>
+            <div id="target-info" style="text-align: right;">
+                <div id="current-state">---</div>
+                <small id="current-rtt">RTT: 0ms</small>
+            </div>
+        </div>
+
+        <div class="container" id="main-ui" style="display:none;">
+            <div class="sidebar">
+                <h3>Monitorar Alvo</h3>
+                <input type="text" id="target" placeholder="5521999999999">
+                <button id="btn-start" class="btn-main" onclick="startTracking()">INICIAR RASTREIO</button>
+                <button id="btn-stop" class="btn-stop" onclick="stopTracking()">PARAR RASTREAMENTO</button>
+                
+                <hr>
+                
+                <h3>Ações e Opções</h3>
+                <div class="options-grid">
+                    <button class="btn-opt" onclick="exportCSV()">📊 Exportar CSV</button>
+                    <button class="btn-opt" onclick="toggleAudio()">🔔 Alerta Sonoro</button>
+                    <button class="btn-opt" onclick="clearLogs()">🗑 Limpar Logs</button>
+                    <button class="btn-opt" onclick="analyzeRoutine()">🧠 Analisar Rotina</button>
+                </div>
+                
+                <div id="analysis-box" style="font-size: 12px; background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 15px; display: none;">
+                    <strong>Dedução de Conexão:</strong> <span id="conn-type">Analisando...</span>
+                </div>
+            </div>
+
+            <div class="content">
+                <div class="chart-container">
+                    <canvas id="rttChart"></canvas>
+                </div>
+                
+                <h3>Histórico de Atividade</h3>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table id="log-table">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Status</th>
+                                <th>Latência (RTT)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let audioEnabled = false;
+        let chart;
+        let logs = [];
+
+        // Inicializa Gráfico
+        const ctx = document.getElementById('rttChart').getContext('2d');
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Latência (ms)', data: [], borderColor: '#25d366', tension: 0.4, fill: true, backgroundColor: 'rgba(37, 211, 102, 0.1)' }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+
+        socket.on('connection-open', () => {
+            document.getElementById('connection-status').innerText = "🟢 WhatsApp Conectado";
+            document.getElementById('main-ui').style.display = 'flex';
+        });
+
+        function startTracking() {
+            const num = document.getElementById('target').value;
+            if(!num) return alert("Insira o número!");
+            socket.emit('add-contact', { number: num });
+            
+            // UI Toggle
+            document.getElementById('btn-start').style.display = 'none';
+            document.getElementById('btn-stop').style.display = 'block';
+            document.getElementById('target').disabled = true;
+            document.getElementById('analysis-box').style.display = 'block';
+        }
+
+        function stopTracking() {
+            const num = document.getElementById('target').value;
+            socket.emit('remove-contact', { number: num });
+            
+            // UI Reset
+            document.getElementById('btn-start').style.display = 'block';
+            document.getElementById('btn-stop').style.display = 'none';
+            document.getElementById('target').disabled = false;
+            document.getElementById('current-state').innerText = "---";
+            document.getElementById('current-rtt').innerText = "RTT: 0ms";
+        }
+
+        socket.on('tracker-update', (data) => {
+            updateUI(data);
+            addLog(data);
+            updateChart(data);
+            checkAlerts(data);
+            inferConnection(data);
+        });
+
+        function updateUI(data) {
+            document.getElementById('current-state').innerText = data.state;
+            document.getElementById('current-rtt').innerText = `RTT: ${Math.round(data.rtt)}ms`;
+            const stateDiv = document.getElementById('current-state');
+            if(data.state.includes('ONLINE')) stateDiv.style.color = '#25d366';
+            else if(data.state.includes('OFFLINE')) stateDiv.style.color = '#ff2e2e';
+            else stateDiv.style.color = '#ffbc00';
+        }
+
+        function addLog(data) {
+            const tbody = document.getElementById('log-body');
+            const row = tbody.insertRow(0);
+            row.innerHTML = `<td>${data.timestamp}</td><td>${data.state}</td><td>${Math.round(data.rtt)}ms</td>`;
+            logs.push(data);
+        }
+
+        function updateChart(data) {
+            chart.data.labels.push(data.timestamp);
+            chart.data.datasets[0].data.push(data.rtt);
+            if(chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            chart.update();
+        }
+
+        function clearLogs() {
+            logs = [];
+            document.getElementById('log-body').innerHTML = "";
+            chart.data.labels = [];
+            chart.data.datasets[0].data = [];
+            chart.update();
+        }
+
+        function exportCSV() {
+            let csv = "\uFEFFHora;Status;RTT\n";
+            logs.forEach(l => csv += `${l.timestamp};${l.state};${l.rtt}\n`);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rastreio_${new Date().getTime()}.csv`;
+            a.click();
+        }
+
+        function toggleAudio() { 
+            audioEnabled = !audioEnabled; 
+            alert(audioEnabled ? "🔔 Alertas Sonoros Ativados" : "🔕 Alertas Sonoros Desativados");
+        }
+
+        function checkAlerts(data) {
+            if(audioEnabled && data.state.includes('ONLINE')) {
+                const context = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = context.createOscillator();
+                const gain = context.createGain();
+                osc.connect(gain);
+                gain.connect(context.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, context.currentTime);
+                gain.gain.setValueAtTime(0.1, context.currentTime);
+                osc.start();
+                osc.stop(context.currentTime + 0.2);
+            }
+        }
+
+        function inferConnection(data) {
+            const rtt = data.rtt;
+            const typeEl = document.getElementById('conn-type');
+            if (rtt < 75) typeEl.innerText = "Fibra/WiFi (Estável)";
+            else if (rtt < 180) typeEl.innerText = "Rede Móvel (4G/5G)";
+            else typeEl.innerText = "Conexão Instável / VPN";
+        }
+
+        function analyzeRoutine() {
+            if(logs.length < 5) return alert("Logs insuficientes para análise.");
+            alert("Análise preliminar: O alvo demonstra maior atividade em rede " + document.getElementById('conn-type').innerText);
+        }
+    </script>
+</body>
+</html>
